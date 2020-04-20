@@ -9,6 +9,21 @@
 namespace myapp {
 
 class MyApp : public cinder::app::App {
+  static const int N = 5;
+  static const int tile_size = 800/N;
+  static const int kCursorSize = tile_size/20;
+  static const int Ndir4 = 4;
+  static const int dx4[];
+  static const int dy4[];
+  bool isInside(int) const;
+  bool board[N][N];
+  int cursor_x, cursor_y;
+
+  // toggle a plus shape around cursor_x, cursor_y
+  void toggle5();
+
+  // set all board to 0
+  void clearBoard();
  public:
   MyApp();
   void setup() override;
