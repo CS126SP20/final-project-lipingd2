@@ -4,20 +4,27 @@
 #define FINALPROJECT_APPS_MYAPP_H_
 
 #include <cinder/app/App.h>
-
+#include <queue>
+#include <chrono>
+#include <mylibrary/solver.h>
 
 namespace myapp {
 
+using IntPair = std::pair<int, int>;
+using std::chrono::time_point;
+using std::chrono::system_clock;
+using std::chrono::duration;
+using std::chrono::milliseconds;
 class MyApp : public cinder::app::App {
   static const int N = 5;
   static const int tile_size = 800/N;
   static const int kCursorSize = tile_size/20;
-  static const int Ndir4 = 4;
-  static const int dx4[];
-  static const int dy4[];
-  bool isInside(int) const;
   bool board[N][N];
   int cursor_x, cursor_y;
+  double disp_x, disp_y;
+  solver answer;
+  std::queue<IntPair> cheat_moves;
+  time_point<system_clock> cheat_move_last_update;
 
   // toggle a plus shape around cursor_x, cursor_y
   void toggle5();
@@ -30,6 +37,8 @@ class MyApp : public cinder::app::App {
   void update() override;
   void draw() override;
   void keyDown(cinder::app::KeyEvent) override;
+
+  void solveBoard();
 };
 
 }  // namespace myapp

@@ -1,32 +1,28 @@
 // Copyright (c) 2020 [Your Name]. All rights reserved.
 
 #include "my_app.h"
-
-#include <cinder/app/App.h>
-#include <cinder/audio/Voice.h>
 #include <cinder/Font.h>
 #include <cinder/Text.h>
-#include <cinder/Vector.h>
+#include <cinder/app/App.h>
 #include <cinder/gl/draw.h>
 #include <cinder/gl/gl.h>
-#include <rapidcsv.h>
-#include <unistd.h>
 #include <gflags/gflags.h>
+#include <rapidcsv.h>
+#include "mylibrary/util.h"
+#include "mylibrary/solver.h"
+
 using std::cout;
 using std::endl;
 using std::string;
-
+using std::vector;
 
 namespace myapp {
 
-DEFINE_string(file, "", "the path of a file");
+DECLARE_string(file);
 
 using cinder::app::KeyEvent;
 
-const int MyApp::dx4[] = {1, 0, -1, 0};
-const int MyApp::dy4[] = {0, 1, 0, -1};
-
-MyApp::MyApp() {
+MyApp::MyApp() : answer() {
   clearBoard();
 }
 
@@ -40,6 +36,7 @@ void MyApp::clearBoard() {
 // setup the board
 void MyApp::setup() {
   cursor_x = cursor_y = N/2;
+  disp_x = disp_y = cursor_x;
   if (!FLAGS_file.empty()) {
     try {
       rapidcsv::Document doc(FLAGS_file,
@@ -57,7 +54,23 @@ void MyApp::setup() {
   }
 }
 
-void MyApp::update() { }
+void MyApp::update() {
+  // cheat moves
+  static constexpr duration<double> cheat_move_interval = milliseconds(300);
+  if (cheat_moves.size()) {
+    if (system_clock::now() - cheat_move_last_update > cheat_move_interval) {
+      cheat_move_last_update = system_clock::now();
+      auto [x, y] = cheat_moves.front();
+      cheat_moves.pop();
+      cursor_x = x, cursor_y = y;
+      toggle5();
+    }
+  }
+
+  // cursor diplay
+  disp_x += ((double)cursor_x - disp_x) * 0.3;
+  disp_y += ((double)cursor_y - disp_y) * 0.3;
+}
 
 void MyApp::draw() {
   cinder::gl::enableAlphaBlending();
@@ -82,25 +95,26 @@ void MyApp::draw() {
   // draw cursor
   cinder::gl::color(cinder::Color::white());
   cinder::gl::drawSolidRect(cinder::Rectf(
-      tile_size * cursor_x,
-      tile_size * cursor_y,
-      tile_size * cursor_x + tile_size,
-      tile_size * cursor_y + kCursorSize));
+      tile_size * disp_x,
+      tile_size * disp_y,
+      tile_size * disp_x + tile_size,
+      tile_size * disp_y + kCursorSize));
   cinder::gl::drawSolidRect(cinder::Rectf(
-      tile_size * cursor_x,
-      tile_size * cursor_y,
-      tile_size * cursor_x + kCursorSize,
-      tile_size * cursor_y + tile_size));
+      tile_size * disp_x,
+      tile_size * disp_y,
+      tile_size * disp_x + kCursorSize,
+      tile_size * disp_y + tile_size));
   cinder::gl::drawSolidRect(cinder::Rectf(
-      tile_size * cursor_x + tile_size - kCursorSize,
-      tile_size * cursor_y,
-      tile_size * cursor_x + tile_size,
-      tile_size * cursor_y + tile_size));
+      tile_size * disp_x + tile_size - kCursorSize,
+      tile_size * disp_y,
+      tile_size * disp_x + tile_size,
+      tile_size * disp_y + tile_size));
   cinder::gl::drawSolidRect(cinder::Rectf(
-      tile_size * cursor_x,
-      tile_size * cursor_y + tile_size - kCursorSize,
-      tile_size * cursor_x + tile_size,
-      tile_size * cursor_y + tile_size));
+      tile_size * disp_x,
+      tile_size * disp_y + tile_size - kCursorSize,
+      tile_size * disp_x + tile_size,
+      tile_size * disp_y + tile_size));
+
 }
 
 using cinder::app::KeyEvent;
@@ -123,33 +137,37 @@ void MyApp::keyDown(KeyEvent event) {
       if (cursor_x != N-1) cursor_x++;
       break;
     case KeyEvent::KEY_SPACE:
-      toggle5();
+      if (cheat_moves.empty()) toggle5();
       break;
     case KeyEvent::KEY_c:
-      clearBoard();
+      if (cheat_moves.empty()) solveBoard();
       break;
   }
 }
-
-//to check if it is boundary when do the toggle
-bool MyApp::isInside(int x) const {
-  return 0 <= x && x < N;
-}
-
 // toggle a "star" around cursor
 //  +
 // +++
 //  +
 void MyApp::toggle5() {
   const auto toggle = [&](int x, int y) {
-    if (isInside(x) && isInside(y)) board[x][y] ^= 1;
+    if (isInside(x, N) && isInside(y, N)) board[x][y] ^= 1;
   };
   toggle(cursor_x, cursor_y);
-  for (int dir = 0; dir < Ndir4; dir++) {
+  for (int dir = 0; dir < 4; dir++) {
     toggle(cursor_x + dx4[dir], cursor_y + dy4[dir]);
   }
 }
 
-
+void MyApp::solveBoard() {
+  bool newBoard[N * N];
+  for (int i = 0 ; i < N; i++) {
+    for (int j = 0; j < N; j++) {
+      newBoard[N * i + j] = !board[i][j];
+    }
+  }
+  if (!answer.solveMatrix(newBoard, cheat_moves)) {
+    cout << "No Answer\n";
+  }
+}
 
 }  // namespace myapp
