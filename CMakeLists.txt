@@ -85,29 +85,3 @@ if(NOT catch2_POPULATED)
     add_library(catch2 INTERFACE)
     target_include_directories(catch2 INTERFACE ${catch2_SOURCE_DIR}/single_include)
 endif()
-
-# Add more CMake libraries here ...
-FetchContent_Declare(
-        rapidcsv
-        GIT_REPOSITORY https://github.com/d99kris/rapidcsv.git
-        GIT_TAG HEAD
-)
-
-FetchContent_GetProperties(rapidcsv)
-if(NOT rapidcsv_POPULATED)
-    FetchContent_Populate(rapidcsv)
-    add_library(rapidcsv INTERFACE)
-    target_include_directories(rapidcsv INTERFACE ${rapidcsv_SOURCE_DIR}/src)
-endif()
-
-FetchContent_Declare(
-        gflags
-        GIT_REPOSITORY https://github.com/gflags/gflags.git
-        GIT_TAG v2.2.2
-)
-
-FetchContent_GetProperties(gflags)
-if (NOT gflags_POPULATED)
-    FetchContent_Populate(gflags)
-    add_subdirectory(${gflags_SOURCE_DIR} ${gflags_BINARY_DIR})
-endif ()

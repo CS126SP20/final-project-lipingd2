@@ -10,67 +10,88 @@ using std::fill_n;
 using std::swap;
 using std::vector;
 
-solver::solver() {
-  fill_n(&A[0][0], N * N * N * N, 0);
-  for (int i = 0; i < N * N; i++) {
+// Destructor
+Solver::~Solver() {
+  for (int i = 0; i < n*n; i++) delete[] A[i];
+  delete[] A;
+  records.clear();
+}
+
+// reduce the matrix given n
+Solver::Solver(int _n): n(_n) {
+  // allocate memory for A
+  A = new bool*[n*n];
+  for (int i = 0; i < n*n; i++) {
+    A[i] = new bool[n*n];
+    fill_n(A[i], n*n, 0);
+  }
+
+  // construct matrix for nxn
+  for (int i = 0; i < n * n; i++) {
     A[i][i] = 1;
-    int x = i / N, y = i % N;
+    int x = i / n, y = i % n;
     for (int dir = 0; dir < 4; dir++) {
       int nx = x + dx4[dir], ny = y + dy4[dir];
-      if (isInside(nx, N) && isInside(ny, N))
-        A[i][N * nx + ny] = 1;
+      if (isInside(nx, n) && isInside(ny, n))
+        A[i][n * nx + ny] = 1;
     }
   }
 
+  // Gauss-Jordan Elimination
   int i = 0;
-  for (int k = 0; k < N * N;) {
+  for (int k = 0; k < n * n; k++) {
     if (A[i][k] != 1) {
        bool foundPivot = false;
-       for (int x = i; x < N * N; x++) {
+       for (int x = i; x < n * n; x++) {
          if (A[x][k] == 1) {
-           for (int q = k; q < N * N; q++) {
+           for (int q = k; q < n * n; q++) {
              swap(A[i][q],A[x][q]);
            }
-           records.push_back({swapTwo,i,x});
+           records.push_back({ROW_SWAP, i, x});
            foundPivot = true;
            break;
          }
        }
-      if (!foundPivot) {
-        k++;
-        continue;
-      }
+      if (!foundPivot) continue;
     }
-    for (int x = 0; x < N * N; x++) {
+    for (int x = 0; x < n * n; x++) {
       if (x != i && A[x][k] == 1) {
-        for (int y = k; y < N * N; y++) {
-          A[x][y] ^= A[i][y];
+        for (int y = k; y < n * n; y++) {
+          A[x][y] ^= A[i][y];  // xor is addition in modulo 2
         }
-        records.push_back({exclusiveOr, i, x});
+        records.push_back({ROW_XOR, i, x});
       }
     }
     ++i;
   }
+
   rank = i;
 }
 
-bool solver::solveMatrix(bool a[], std::queue<IntPair>& b) {
-  for (operation record: records) {
-    if (record.a == swapTwo) {
-      swap(a[record.x], a[record.y]);
+// a: current board
+// b: operations produced
+bool Solver::solve(const bool* const curr, std::queue<IntPair>& q) {
+  bool* c = new bool[n*n];
+  for (int i = 0; i < n*n; i++) c[i] = !curr[i];
+  for (RowOperation record: records) {
+    if (record.a == ROW_SWAP) {
+      swap(c[record.x], c[record.y]);
     } else {
-      a[record.y] ^= a[record.x];
+      c[record.y] ^= c[record.x];
     }
   }
-  for (int i = rank; i < N * N; i++) {
-    if (a[i] == 1) {
+  //Do we have answer?
+  // if 00000 1, no answer
+  for (int i = rank; i < n * n; i++) {
+    if (c[i] == 1) {
       return false;
     }
   }
+  // give shortest path
   for (int i = 0, j = 0; i < rank; ++i, ++j) {
-    for (; j < N * N && !A[i][j]; ++j);
-    if (j == N * N) break;
-    if (a[i]) b.push({j / N, j % N});
+    for (; j < n * n && !A[i][j]; ++j);
+    if (j == n*n) break;
+    if (c[i]) q.push({j / n, j % n});
   }
   return true;
 }

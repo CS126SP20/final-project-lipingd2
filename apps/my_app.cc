@@ -1,75 +1,120 @@
 // Copyright (c) 2020 [Your Name]. All rights reserved.
 
 #include "my_app.h"
+
 #include <cinder/Font.h>
 #include <cinder/Text.h>
 #include <cinder/app/App.h>
 #include <cinder/gl/draw.h>
 #include <cinder/gl/gl.h>
-#include <gflags/gflags.h>
-#include <rapidcsv.h>
-#include "mylibrary/util.h"
+#include <mylibrary/config.h>
+#include <vector>
+#include <algorithm>
+#include <string>
+
 #include "mylibrary/solver.h"
+#include "mylibrary/util.h"
 
 using std::cout;
 using std::endl;
 using std::string;
 using std::vector;
+using cinder::app::KeyEvent;
+using cinder::ColorA;
+using cinder::TextBox;
 
 namespace myapp {
 
-DECLARE_string(file);
+// print a string on screen
+const char kNormalFont[] = "Menlo";
+template <typename C, typename Alignment>
+static void PrintText(const string& text, const C& color, int font_size, const Alignment a,
+    const cinder::ivec2& size, const cinder::vec2& loc) {
+  cinder::gl::color(color);
 
-using cinder::app::KeyEvent;
+  auto box = TextBox()
+      .alignment(a)
+      .font(cinder::Font(kNormalFont, font_size))
+      .size(size)
+      .color(color)
+      .backgroundColor(ColorA(0, 0, 0, 0))
+      .text(text);
 
-MyApp::MyApp() : answer() {
-  clearBoard();
+  const auto box_size = box.getSize();
+  const cinder::vec2 locp = {loc.x - box_size.x / 2, loc.y - box_size.y / 2};
+  const auto surface = box.render();
+  const auto texture = cinder::gl::Texture::create(surface);
+  cinder::gl::draw(texture, locp);
 }
 
-// a empty board at the beginning if user do not give the file
-void MyApp::clearBoard() {
-  for (int i = 0; i < N; i++) {
-    for (int j = 0; j < N; j++) board[i][j] = 0;
-  }
-}
+MyApp::MyApp(){}
 
 // setup the board
 void MyApp::setup() {
-  cursor_x = cursor_y = N/2;
-  disp_x = disp_y = cursor_x;
-  if (!FLAGS_file.empty()) {
-    try {
-      rapidcsv::Document doc(FLAGS_file,
-          rapidcsv::LabelParams(-1, -1));
-      for (int i = 0; i < N;i++) {
-        std::vector<int> row = doc.GetRow<int>(i);
-        for (int j = 0; j < N; j++) {
-          board[i][j] = row.at(j);
-        }
-      }
-    } catch (std::ios_base::failure) {
-      std::cout << "File not found or csv error\n";
-      exit(1);
-    }
-  }
+  conf = new Conf(kDefN);
+  reset();
+}
+
+// reset game according to conf.
+void MyApp::reset() {
+  n = conf->n;
+
+  tile_size = kWidth / n;
+  cursor_size = tile_size / 10;
+
+  delete[] board;
+  board = new bool[n*n];
+  std::copy_n(conf->initial_board, n*n, board);
+
+  delete[] disp_board;
+  disp_board = new double[n*n];
+  for (int i = 0; i < n*n; i++) disp_board[i] = rand()/RAND_MAX;
+
+  cursor_x = cursor_y = n/2;
+  disp_x = n/2, disp_y = n -1;
+
+  delete solver;
+  solver = new Solver(n);
+  while (solve_moves.size()) solve_moves.pop();
+  solve_move_last_update = system_clock::now();
+
+  command_line = "";
+  buffer_line = "new game";
+  inConsole = false;
+
+  while (past_moves.size()) past_moves.pop();
+  while (undos.size()) undos.pop();
+
+  cheating = false;
 }
 
 void MyApp::update() {
-  // cheat moves
-  static constexpr duration<double> cheat_move_interval = milliseconds(300);
-  if (cheat_moves.size()) {
-    if (system_clock::now() - cheat_move_last_update > cheat_move_interval) {
-      cheat_move_last_update = system_clock::now();
-      auto [x, y] = cheat_moves.front();
-      cheat_moves.pop();
+  // solve moves
+  static constexpr duration<double> solve_move_interval = milliseconds(300);
+  if (solve_moves.size()) {
+    if (system_clock::now() - solve_move_last_update > solve_move_interval) {
+      solve_move_last_update = system_clock::now();
+      auto [x, y] = solve_moves.front();
+      solve_moves.pop();
+
       cursor_x = x, cursor_y = y;
-      toggle5();
+      do_move({cursor_x * n + cursor_y, false}, true);
     }
   }
 
-  // cursor diplay
-  disp_x += ((double)cursor_x - disp_x) * 0.3;
-  disp_y += ((double)cursor_y - disp_y) * 0.3;
+  // smoother cursor display
+  disp_x += ((double)cursor_x - disp_x) * kCursorSmoother;
+  disp_y += ((double)cursor_y - disp_y) * kCursorSmoother;
+
+  // smoother board display
+  for (int i = 0; i < n*n; i++) {
+    disp_board[i] += ((int)board[i] - disp_board[i]) * kBoardSmoother;
+  }
+
+  // win detection
+  if (std::all_of(board, board+n*n, [](bool x){return x;})) {
+    buffer_line = "You Win!";
+  }
 }
 
 void MyApp::draw() {
@@ -79,15 +124,14 @@ void MyApp::draw() {
   cinder::gl::clear(cinder::Color::black());
 
   // draw board
-  cinder::gl::color(cinder::Color::gray(0.5));
-  for (int i = 0; i < N; i++) {
-    for (int j = 0; j < N; j++) {
-      if (board[i][j]) {
-        cinder::gl::drawSolidRect(cinder::Rectf(
-            tile_size * i,
-            tile_size * j,
-            tile_size * i + tile_size,
-            tile_size * j + tile_size));
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < n; j++) {
+      if (disp_board[i * n + j] > eps) {
+        cinder::gl::color(
+            cinder::Color::gray(kBoardMaxGrayValue * disp_board[i * n + j]));
+        cinder::gl::drawSolidRect(cinder::Rectf(tile_size * i, tile_size * j,
+                                                tile_size * i + tile_size,
+                                                tile_size * j + tile_size));
       }
     }
   }
@@ -98,75 +142,230 @@ void MyApp::draw() {
       tile_size * disp_x,
       tile_size * disp_y,
       tile_size * disp_x + tile_size,
-      tile_size * disp_y + kCursorSize));
+      tile_size * disp_y + cursor_size));
   cinder::gl::drawSolidRect(cinder::Rectf(
       tile_size * disp_x,
       tile_size * disp_y,
-      tile_size * disp_x + kCursorSize,
+      tile_size * disp_x + cursor_size,
       tile_size * disp_y + tile_size));
   cinder::gl::drawSolidRect(cinder::Rectf(
-      tile_size * disp_x + tile_size - kCursorSize,
+      tile_size * disp_x + tile_size - cursor_size,
       tile_size * disp_y,
       tile_size * disp_x + tile_size,
       tile_size * disp_y + tile_size));
   cinder::gl::drawSolidRect(cinder::Rectf(
       tile_size * disp_x,
-      tile_size * disp_y + tile_size - kCursorSize,
+      tile_size * disp_y + tile_size - cursor_size,
       tile_size * disp_x + tile_size,
       tile_size * disp_y + tile_size));
 
+  // draw status
+  string status = "#moves: " + std::to_string(past_moves.size());
+  PrintText(status, cinder::Color::white(), kStatusFontSize, TextBox::CENTER,
+            {kStatusWidth, kBarHeight}, {kStatusX, kHeightNoBar + kBarHeight * 2/3});
+
+  // draw console
+  string line = inConsole ? ":" + command_line : buffer_line;
+  PrintText(line, cinder::Color::white(), kStatusFontSize, TextBox::LEFT,
+            {kWidth - kStatusWidth, kBarHeight},
+            {kConsoleX, kHeightNoBar + kBarHeight * 2 / 3});
 }
 
 using cinder::app::KeyEvent;
 void MyApp::keyDown(KeyEvent event) {
-  switch (event.getCode()) {
-    case KeyEvent::KEY_UP:
-    case KeyEvent::KEY_k:
-      if (cursor_y != 0) cursor_y--;
-      break;
-    case KeyEvent::KEY_DOWN:
-    case KeyEvent::KEY_j:
-      if (cursor_y != N-1) cursor_y++;
-      break;
-    case KeyEvent::KEY_LEFT:
-    case KeyEvent::KEY_h:
-      if (cursor_x != 0) cursor_x--;
-      break;
-    case KeyEvent::KEY_RIGHT:
-    case KeyEvent::KEY_l:
-      if (cursor_x != N-1) cursor_x++;
-      break;
-    case KeyEvent::KEY_SPACE:
-      if (cheat_moves.empty()) toggle5();
-      break;
-    case KeyEvent::KEY_c:
-      if (cheat_moves.empty()) solveBoard();
-      break;
+  auto key = event.getCode();
+
+  if (inConsole) {
+    // keys accepted when in console
+    switch (key) {
+      case KeyEvent::KEY_ESCAPE:
+        endConsole(false);
+        break;
+      case KeyEvent::KEY_RETURN:
+        endConsole(true);
+        break;
+      case KeyEvent::KEY_BACKSPACE:
+        deleteInConsole();
+        break;
+      default:
+        typeToConsole(key);
+    }
+  } else {
+    // keys accepted when in normal mode
+    switch (key) {
+      case KeyEvent::KEY_SEMICOLON:
+        startConsole();
+        break;
+
+        // key accepted only when the solver is not activated
+      default:
+        if (solve_moves.empty()) {
+          switch (key) {
+            case KeyEvent::KEY_UP:
+            case KeyEvent::KEY_k:
+              if (cursor_y != 0) cursor_y--;
+              break;
+            case KeyEvent::KEY_DOWN:
+            case KeyEvent::KEY_j:
+              if (cursor_y != n-1) cursor_y++;
+              break;
+            case KeyEvent::KEY_LEFT:
+            case KeyEvent::KEY_h:
+              if (cursor_x != 0) cursor_x--;
+              break;
+            case KeyEvent::KEY_RIGHT:
+            case KeyEvent::KEY_l:
+              if (cursor_x != n-1) cursor_x++;
+              break;
+            case KeyEvent::KEY_SPACE:
+              do_move({cursor_x * n + cursor_y, cheating}, true);
+              break;
+            case KeyEvent::KEY_s:
+              solveBoard();
+              break;
+            case KeyEvent::KEY_u:
+              undo_move();
+              break;
+            case KeyEvent::KEY_r:
+              redo_move();
+            case KeyEvent::KEY_c:
+              cheating = !cheating;
+          }
+        }
+    }
   }
 }
+
+// command console
+// -----------------------------------------------
+
+void MyApp::startConsole() {
+  inConsole = true;
+  buffer_line = "";
+}
+
+void MyApp::endConsole(bool enter) {
+  if (enter) evalConsole();
+  inConsole = false;
+  command_line = "";
+}
+
+void MyApp::evalConsole() {
+  if (command_line.empty()) return;
+
+  vector<string> split = splitStringBySpace(command_line);
+  if (split.empty()) return;
+  int nargs = (int)split.size() - 1;
+
+  const string& command = split[0];
+  if (command == "e") {            // TODO: toml live loading
+    if (nargs == 1) {
+      loadConf(split[1]);
+    } else {
+      buffer_line = ":e <filename>";
+    }
+  } else if (command == "q") {     // TODO: quit the game
+    exit(0);
+  } else if (command == "set") {   // TODO: set a variable. eg n
+    if (nargs == 2) {
+      setVar(split[1], split[2]);
+    } else {
+      buffer_line = ":set <variable> <value>";
+    }
+  } else if (command == "reset") { // TODO: live reset
+    reset();
+  } else {
+    buffer_line = "command error";
+  }
+}
+
+void MyApp::setVar(const string& var, const string& x_str) {
+  if (var == "n") {
+    int new_n = std::stoi(x_str);
+    if (conf->n != new_n && (kMinN <= new_n && new_n <= kMaxN)) {
+      delete conf;
+      conf = new Conf(new_n);
+    } else {
+      buffer_line = "invalid n";
+    }
+  } else {
+    buffer_line = "variable '" + var + "' not found";
+  }
+}
+
+void MyApp::loadConf(const string& filename) {
+  Conf* new_conf = Conf::GetConfigFromFile(filename);
+  if (new_conf) {
+    delete conf;
+    conf = new_conf;
+    reset();
+  } else {
+    buffer_line = "loading config failed.";
+    delete new_conf;
+  }
+}
+
+void MyApp::typeToConsole(char c) {
+  if (command_line.size() < kMaxCommandLen)
+    command_line.push_back(c);
+}
+
+void MyApp::deleteInConsole() {
+  if (command_line.size()) command_line.pop_back();
+}
+
+// board actions
+// ----------------------------------------------
+
+void MyApp::do_move(const Move mov, bool clear_undos) {
+  past_moves.push(mov);
+  toggle(mov);
+  if (clear_undos) while (undos.size()) undos.pop();
+}
+
+void MyApp::undo_move() {
+  if (past_moves.size()) {
+    Move mov = past_moves.top();
+    past_moves.pop();
+    undos.push(mov);
+
+    cursor_x = mov.pos / n, cursor_y = mov.pos % n;
+    toggle(mov);
+  } else {
+    buffer_line = "no move to undo";
+  }
+}
+
+void MyApp::redo_move() {
+  if (undos.size()) {
+    Move mov = undos.top();
+    undos.pop();
+
+    cursor_x = mov.pos / n, cursor_y = mov.pos % n;
+    do_move(mov, false);
+  }
+};
+
 // toggle a "star" around cursor
 //  +
 // +++
 //  +
-void MyApp::toggle5() {
-  const auto toggle = [&](int x, int y) {
-    if (isInside(x, N) && isInside(y, N)) board[x][y] ^= 1;
+void MyApp::toggle(Move mov) {
+  const auto toggle1 = [&](int x, int y) {
+    if (isInside(x, n) && isInside(y, n)) board[x*n + y] ^= 1;
   };
-  toggle(cursor_x, cursor_y);
-  for (int dir = 0; dir < 4; dir++) {
-    toggle(cursor_x + dx4[dir], cursor_y + dy4[dir]);
+  toggle1(cursor_x, cursor_y);
+  if (!mov.cheating) {
+    for (int dir = 0; dir < 4; dir++) {
+      toggle1(cursor_x + dx4[dir], cursor_y + dy4[dir]);
+    }
   }
 }
 
 void MyApp::solveBoard() {
-  bool newBoard[N * N];
-  for (int i = 0 ; i < N; i++) {
-    for (int j = 0; j < N; j++) {
-      newBoard[N * i + j] = !board[i][j];
-    }
-  }
-  if (!answer.solveMatrix(newBoard, cheat_moves)) {
-    cout << "No Answer\n";
+  bool hasSolution = solver->solve(board, solve_moves);
+  if (!hasSolution) {
+    buffer_line = "no solution :(";
   }
 }
 

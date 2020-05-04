@@ -9,25 +9,26 @@
 
 using IntPair = std::pair<int, int>;
 
-enum process {
-  swapTwo,
-  exclusiveOr,
+enum RowOperationType {
+  ROW_SWAP,
+  ROW_XOR,
 };
 
-struct operation {
-  process a;
+struct RowOperation {
+  RowOperationType a;
   int x;
   int y;
 };
 
-class solver {
-  static const int N = 5;
-  bool A[N * N][N * N];
-  std::vector<operation> records;
+class Solver {
+  const int n;
+  bool** A;
+  std::vector<RowOperation> records;
   int rank;
  public:
-  solver();
-  bool solveMatrix(bool a[], std::queue<IntPair> &b);
+  explicit Solver(int);
+  ~Solver();
+  bool solve(const bool* const, std::queue<IntPair>&);
 };
 
 #endif  // FINALPROJECT_SOLVER_H
