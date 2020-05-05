@@ -24,6 +24,8 @@ const int kMinN = 2;
 const int kMaxN = 15;
 const int kMaxCommandLen = 25;
 const double eps = 1e-5;
+const char kNormalFont[] = "Menlo";
+const double kTileScale = 0.1;
 
 }
 #endif  // FINALPROJECT_CONFIG_H

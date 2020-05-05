@@ -26,7 +26,7 @@ using cinder::TextBox;
 namespace myapp {
 
 // print a string on screen
-const char kNormalFont[] = "Menlo";
+// copy from snack
 template <typename C, typename Alignment>
 static void PrintText(const string& text, const C& color, int font_size, const Alignment a,
     const cinder::ivec2& size, const cinder::vec2& loc) {
@@ -60,7 +60,7 @@ void MyApp::reset() {
   n = conf->n;
 
   tile_size = kWidth / n;
-  cursor_size = tile_size / 10;
+  cursor_size = tile_size * kTileScale;
 
   delete[] board;
   board = new bool[n*n];
@@ -258,21 +258,21 @@ void MyApp::evalConsole() {
   int nargs = (int)split.size() - 1;
 
   const string& command = split[0];
-  if (command == "e") {            // TODO: toml live loading
+  if (command == "e") {            //toml live loading
     if (nargs == 1) {
       loadConf(split[1]);
     } else {
       buffer_line = ":e <filename>";
     }
-  } else if (command == "q") {     // TODO: quit the game
+  } else if (command == "q") {     //quit the game
     exit(0);
-  } else if (command == "set") {   // TODO: set a variable. eg n
+  } else if (command == "set") {   //set a variable. eg n
     if (nargs == 2) {
       setVar(split[1], split[2]);
     } else {
       buffer_line = ":set <variable> <value>";
     }
-  } else if (command == "reset") { // TODO: live reset
+  } else if (command == "reset") { //live reset
     reset();
   } else {
     buffer_line = "command error";

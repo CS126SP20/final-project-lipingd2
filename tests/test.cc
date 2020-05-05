@@ -7,6 +7,8 @@
 
 #include <mylibrary/example.h>
 
+// TODO: write a manual
+// TODO: put the math doc
 
 TEST_CASE("Random sanity test", "[random]") {
   const float random = cinder::randFloat();
